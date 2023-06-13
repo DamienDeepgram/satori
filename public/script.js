@@ -108,6 +108,14 @@ function recordingStop(){
     mic.setAttribute('src', 'mic_off.png');
 }
 
+function toggleRecording(){
+    if(recording){
+        recordingStop();
+    } else {
+        recordingStart();
+    } 
+}
+
 function modelChanged(){
   document.getElementById('conversation').innerHTML = '';
 }
