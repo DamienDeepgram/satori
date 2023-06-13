@@ -15,7 +15,7 @@ navigator.mediaDevices
   .getUserMedia({ audio: true })
   .then((stream) => {
     mediaRecorder = new MediaRecorder(stream);
-    socket = io(apiOrigin, (options = { transports: ["websocket"] }));
+    socket = io("http://localhost:3000", (options = { transports: ["websocket"] }));
   })
   .then(() => {
     socket.on("connect", async () => {
@@ -79,7 +79,8 @@ function revealSpans(){
 }
 
 async function promptAI(msg) {
-    const response = await fetch(`${apiOrigin}/chat?message=${encodeURIComponent(msg)}`, {
+    let model = document.getElementById('model').value;
+    const response = await fetch(`${apiOrigin}/chat?model=${model}&message=${encodeURIComponent(msg)}`, {
       method: "GET"
     });
 
@@ -105,6 +106,10 @@ function recordingStop(){
         recording = false;
     }, 1000)
     mic.setAttribute('src', 'mic_off.png');
+}
+
+function modelChanged(){
+  document.getElementById('conversation').innerHTML = '';
 }
 
 document.getElementById('content').addEventListener('scroll', () => {
