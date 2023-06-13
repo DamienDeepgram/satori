@@ -2,4 +2,4 @@
 
 ## Live Demo
 
-[https://satori-ai.glitch.me/](Live Demo)
+[Live Demo](https://satori-ai.glitch.me)
