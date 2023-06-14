@@ -11,6 +11,13 @@ import { HumanChatMessage, SystemChatMessage } from "langchain/schema";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const { Deepgram } = pkg;
+let deepgrams = {};
+let socket;
+let dgLiveObjs = {};
+let globalSockets = {};
+
+
 const models = {
   'listener': 'You are very caring and considerate. You are always positive and helpful. You provide short answers one or two sentence at a time. You ask probing questions to help the user share more. You provide reassurances and help the user feel better.',
   'medic': 'Your purpose is to assist users in understanding medical conditions and provide educational resources ranging from simple to advanced. You will be used by medical professionals, students, and individuals seeking health information. Your functions include identifying symptoms, suggesting possible diagnoses, providing treatment recommendations, offering educational resources, and providing emergency information.',
@@ -105,14 +112,10 @@ In the context of DeepGram application management, you will be used by developer
 `,
   '': ``,
 };
-let chat = null;
-if(process.env.OPEN_AI_API_KEY){
-  chat = new ChatOpenAI({ openAIApiKey: process.env.OPEN_AI_API_KEY, temperature: 0 });
-}
+let openAIChats = {};
 
-
-async function promptAI(model, message){
-  const response = await chat.call([
+async function promptAI(socketId, model, message){
+  const response = await openAIChats[socketId].call([
     new SystemChatMessage(
       models[model]
     ),
@@ -139,10 +142,11 @@ app.get("/chat", async (req, res) => {
   }
   let model = req.query.model;
   let message = req.query.message;
+  let socketId = req.query.socketId;
   console.log('message',message);
 
   try {
-    let response = await promptAI(model, message);
+    let response = await promptAI(socketId, model, message);
 
     res.send({ response });
   } catch (err) {
@@ -153,56 +157,67 @@ app.get("/chat", async (req, res) => {
 
 const httpServer = createServer(app);
 
-const { Deepgram } = pkg;
-let deepgram;
-let dgLiveObj;
-let io;
-// make socket global so we can access it from anywhere
-let globalSocket;
-
 // Pull out connection logic so we can call it outside of the socket connection event
-const initDgConnection = (disconnect) => {
-  dgLiveObj = createNewDeepgramLive(deepgram);
-  addDeepgramTranscriptListener(dgLiveObj);
-  addDeepgramOpenListener(dgLiveObj);
-  addDeepgramCloseListener(dgLiveObj);
-  addDeepgramErrorListener(dgLiveObj);
-  // clear event listeners
-  if (disconnect) {
-    globalSocket.removeAllListeners();
-  }
+const initDgConnection = (socketId) => {
+  dgLiveObjs[socketId] = createNewDeepgramLive(deepgrams[socketId]);
+  addDeepgramTranscriptListener(socketId);
+  addDeepgramOpenListener(socketId);
+  addDeepgramCloseListener(socketId);
+  addDeepgramErrorListener(socketId);
   // receive data from client and send to dgLive
-  globalSocket.on("packet-sent", async (event) =>
-    dgPacketResponse(event, dgLiveObj)
+  globalSockets[socketId].on("packet-sent", async (event) =>
+    dgPacketResponse(event, socketId)
   );
 };
 
 const createWebsocket = () => {
-  if(!io){
-    io = new Server(httpServer, { transports: "websocket",
+  if(!socket){
+    socket = new Server(httpServer, { transports: "websocket",
       cors: { }
     });
-    io.on("connection", (socket) => {
-      console.log(`Connected on server side with ID: ${socket.id}`);
-      globalSocket = socket;
-      deepgram = createNewDeepgram();
-      initDgConnection(false);
+    socket.on("connection", (clientSocket) => {
+      let socketId = clientSocket.id;
+      console.log(`Connected on server side with ID: ${socketId}`);
+      globalSockets[socketId] = clientSocket;
+      if(!deepgrams[socketId]){
+        deepgrams[socketId] = createNewDeepgram();
+      }
+
+      if(process.env.OPEN_AI_API_KEY){
+        openAIChats[socketId] = new ChatOpenAI({ openAIApiKey: process.env.OPEN_AI_API_KEY, temperature: 0 });
+      }
+
+      initDgConnection(socketId);
+      socket.on('disconnect', () => {
+        console.log('User disconnected.', socketId);
+        globalSockets[socketId].removeAllListeners();
+        delete globalSockets[socketId];
+        dgLiveObjs[socketId].removeAllListeners();
+        delete dgLiveObjs[socketId];
+        delete openAIChats[socketId];
+      });
+
+      globalSockets[socketId].emit("socketId", socketId);
     });
   }
 }; 
 
-const createNewDeepgram = () =>
-  new Deepgram(process.env.DEEPGRAM_API_KEY);
-const createNewDeepgramLive = (dg) =>
-  dg.transcription.live({
+const createNewDeepgram = () => {
+  return new Deepgram(process.env.DEEPGRAM_API_KEY);
+};
+
+const createNewDeepgramLive = (dg) => {
+  return dg.transcription.live({
     language: "en",
     punctuate: true,
     smart_format: true,
     model: "nova",
   });
+};
 
-const addDeepgramTranscriptListener = (dg) => {
-  dg.addListener("transcriptReceived", async (dgOutput) => {
+const addDeepgramTranscriptListener = (socketId) => {
+  let _socketId = socketId;
+  dgLiveObjs[socketId].addListener("transcriptReceived", async (dgOutput) => {
     let dgJSON = JSON.parse(dgOutput);
     let utterance;
     try {
@@ -215,36 +230,36 @@ const addDeepgramTranscriptListener = (dg) => {
       console.log(dgJSON);
     }
     if (utterance) {
-      globalSocket.emit("print-transcript", utterance);
-      console.log(`NEW UTTERANCE: ${utterance}`);
+      globalSockets[_socketId].emit("print-transcript", utterance);
+      console.log(`NEW UTTERANCE socketId: ${_socketId}: ${utterance}`);
     }
   });
 };
 
-const addDeepgramOpenListener = (dg) => {
-  dg.addListener("open", async (msg) =>
-    console.log(`dgLive WEBSOCKET CONNECTION OPEN!`)
+const addDeepgramOpenListener = (socketId) => {
+  dgLiveObjs[socketId].addListener("open", async (msg) =>
+    console.log(`dgLive socketId: ${socketId} WEBSOCKET CONNECTION OPEN!`)
   );
 };
 
-const addDeepgramCloseListener = (dg) => {
-  dg.addListener("close", async (msg) => {
-    console.log(`dgLive CONNECTION CLOSED!`);
+const addDeepgramCloseListener = (socketId) => {
+  dgLiveObjs[socketId].addListener("close", async (msg) => {
+    console.log(`dgLive socketId: ${socketId} CONNECTION CLOSED!`);
     console.log(`Reconnecting`);
     createWebsocket();
   });
 };
 
-const addDeepgramErrorListener = (dg) => {
-  dg.addListener("error", async (msg) => {
+const addDeepgramErrorListener = (socketId) => {
+  dgLiveObjs[socketId].addListener("error", async (msg) => {
     console.log("ERROR MESG", msg);
-    console.log(`dgLive ERROR::Type:${msg.type} / Code:${msg.code}`);
+    console.log(`dgLive socketId: ${socketId} ERROR::Type:${msg.type} / Code:${msg.code}`);
   });
 };
 
-const dgPacketResponse = (event, dg) => {
-  if (dg.getReadyState() === 1) {
-    dg.send(event);
+const dgPacketResponse = (event, socketId) => {
+  if (dgLiveObjs[socketId].getReadyState() === 1) {
+    dgLiveObjs[socketId].send(event);
   }
 };
 

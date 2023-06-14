@@ -6,6 +6,7 @@ let mic = document.getElementById('mic');
 let offset = 300;
 let scrollOverride = false;
 let recording = false;
+let socketId = null;
 const apiOrigin = "http://localhost:3000";
 
 navigator.mediaDevices
@@ -25,8 +26,11 @@ navigator.mediaDevices
       socket.addEventListener("print-transcript", (msg) => {
         if(recording){
             addText(msg, false);
-            promptAI(msg);
+            promptAI(socketId, msg);
         }
+      });
+      socket.addEventListener("socketId", (socket_id) => {
+        socketId = socket_id;
       });
     });
   });
@@ -49,9 +53,9 @@ function loadWords(p, words, index){
     }
 }
 
-async function promptAI(msg) {
+async function promptAI(socketId, msg) {
     let model = document.getElementById('model').value;
-    const response = await fetch(`${apiOrigin}/chat?model=${model}&message=${encodeURIComponent(msg)}`, {
+    const response = await fetch(`${apiOrigin}/chat?socketId=${socketId}&model=${model}&message=${encodeURIComponent(msg)}`, {
       method: "GET"
     });
 
