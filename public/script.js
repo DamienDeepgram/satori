@@ -8,12 +8,15 @@ let scrollOverride = false;
 let recording = false;
 let socketId = null;
 const apiOrigin = "http://localhost:3000";
+const wssOrigin = "http://localhost:3000";
+// const apiOrigin = "https://satori-ai.glitch.me";
+// const wssOrigin = "wss://satori-ai.glitch.me/";
 
 navigator.mediaDevices
   .getUserMedia({ audio: true })
   .then((stream) => {
     mediaRecorder = new MediaRecorder(stream);
-    socket = io("http://localhost:3000", (options = { transports: ["websocket"] }));
+    socket = io(wssOrigin, (options = { transports: ["websocket"] }));
   })
   .then(() => {
     socket.on("connect", async () => {
@@ -36,19 +39,20 @@ navigator.mediaDevices
   });
 
 function addText(text, isAI){
-    let p = document.createElement('p');
-    p.innerHTML = '';
-    p.style.color = isAI ? '#FFFFFF' : '#bd80dc';
-    conversation.appendChild(p);
-    let words = text.split(' ');
-    loadWords(p, words, 0);
+    let div = document.createElement('div');
+    div.innerHTML = '';
+    div.className = 'response';
+    div.style.color = isAI ? '#FFFFFF' : '#bd80dc';
+    conversation.appendChild(div);
+    let words = text.replaceAll('\n', '<br>').split(' ');
+    loadWords(div, words, 0);
 }
 
-function loadWords(p, words, index){
-    p.innerHTML += words[index] + ' ';
+function loadWords(div, words, index){
+    div.innerHTML += words[index] + ' ';
     if(index < words.length-1){
         setTimeout(()=>{
-            loadWords(p, words, index+1);
+            loadWords(div, words, index+1);
         }, 100);
     }
 }
