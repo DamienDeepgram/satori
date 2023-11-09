@@ -1,6 +1,23 @@
 # satori
 
-## Works on all major browsers
+## Setup
+
+```
+npm i
+```
+
+## API Keys
+
+```
+export OPEN_AI_API_KEY=xxx
+export DEEPGRAM_API_KEY=xxx
+```
+
+## Running 
+
+```
+npm run start
+```
 
 ## Known issue on iOS Safari
 
